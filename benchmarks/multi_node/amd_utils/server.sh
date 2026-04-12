@@ -6,6 +6,10 @@
 # Environment Configuration
 # =============================================================================
 
+BARRIER_SYNC_PORT="${BARRIER_SYNC_PORT:-5000}"
+SGLANG_PD_PORT="${SGLANG_PD_PORT:-8000}"
+ROUTER_PORT="${ROUTER_PORT:-30000}"
+
 NODE0_ADDR="${NODE0_ADDR:-localhost}"
 NODE_RANK="${NODE_RANK:-0}"
 MODEL_DIR="${MODEL_DIR:-}"
@@ -228,7 +232,7 @@ PREFILL_ARGS=""
 for i in $(seq 0 $((xP - 1))); do
     prefill_idx=$((i * PREFILL_NODES_PER_WORKER))
     PREFILL_HEADNODE_URLS[$i]="${IP_ARRAY[$prefill_idx]}:${HEADNODE_PORT}"
-    PREFILL_ARGS="$PREFILL_ARGS --prefill http://${IP_ARRAY[$prefill_idx]}:8000"
+    PREFILL_ARGS="$PREFILL_ARGS --prefill http://${IP_ARRAY[$prefill_idx]}:${SGLANG_PD_PORT}"
 done
 
 # Build decode arguments dynamically based on yD
@@ -237,7 +241,7 @@ DECODE_ARGS=""
 for i in $(seq 0 $((yD - 1))); do
     decode_idx=$((i * DECODE_NODES_PER_WORKER + NODE_OFFSET))
     DECODE_HEADNODE_URLS[$i]="${IP_ARRAY[$decode_idx]}:${HEADNODE_PORT}"
-    DECODE_ARGS="$DECODE_ARGS --decode http://${IP_ARRAY[$decode_idx]}:8000"
+    DECODE_ARGS="$DECODE_ARGS --decode http://${IP_ARRAY[$decode_idx]}:${SGLANG_PD_PORT}"
 done
 
 echo "Prefill worker headnode list: ${PREFILL_HEADNODE_URLS[@]}"
@@ -334,10 +338,10 @@ fi
 echo "Waiting at the container creation barrier on $host_name"
 python3 $SGLANG_WS_PATH/sync.py barrier \
     --local-ip ${host_ip} \
-    --local-port 5000 \
+    --local-port ${BARRIER_SYNC_PORT} \
     --enable-port \
     --node-ips ${IPADDRS} \
-    --node-ports 5000 \
+    --node-ports ${BARRIER_SYNC_PORT} \
     --wait-for-all-ports \
     --timeout 300
 
@@ -372,7 +376,7 @@ if [ "$NODE_RANK" -eq 0 ]; then
         --disaggregation-mode prefill \
         --disaggregation-ib-device ${IBDEVICES} \
         --host 0.0.0.0 \
-        --port 8000 \
+        --port ${SGLANG_PD_PORT} \
         --trust-remote-code \
         ${PREFILL_SERVER_CONFIG} \
         --log-level-http warning"
@@ -398,7 +402,7 @@ if [ "$NODE_RANK" -eq 0 ]; then
 
     BARRIER_CMD="python3 $SGLANG_WS_PATH/sync.py barrier \
         --node-ips ${IPADDRS} \
-        --node-ports 8000 \
+        --node-ports ${SGLANG_PD_PORT} \
         --wait-for-all-ports \
         --timeout 1800"
 
@@ -411,7 +415,7 @@ if [ "$NODE_RANK" -eq 0 ]; then
 
     ROUTER_CMD="python -m sglang_router.launch_router \
         --pd-disaggregation \
-        --port 30000 \
+        --port ${ROUTER_PORT} \
         --policy random \
         --prefill-policy random \
         --decode-policy random \
@@ -435,7 +439,7 @@ if [ "$NODE_RANK" -eq 0 ]; then
         # Wait for router to be ready via health endpoint
         HEALTH_BARRIER_CMD="python3 $SGLANG_WS_PATH/sync.py barrier \
             --node-ips ${NODE0_ADDR} \
-            --node-ports 30000 \
+            --node-ports ${ROUTER_PORT} \
             --wait-for-all-health \
             --health-endpoint /readiness \
             --timeout 1800"
@@ -502,7 +506,7 @@ elif [ "$NODE_RANK" -gt 0 ] && [ "$NODE_RANK" -lt "$NODE_OFFSET" ]; then
         --disaggregation-mode prefill \
         --disaggregation-ib-device ${IBDEVICES} \
         --host 0.0.0.0 \
-        --port 8000 \
+        --port ${SGLANG_PD_PORT} \
         --trust-remote-code \
         ${PREFILL_SERVER_CONFIG} \
         --log-level-http warning"
@@ -526,7 +530,7 @@ elif [ "$NODE_RANK" -gt 0 ] && [ "$NODE_RANK" -lt "$NODE_OFFSET" ]; then
     echo "Waiting for proxy server to be up..."
     BARRIER_CMD="python3 $SGLANG_WS_PATH/sync.py barrier \
         --node-ips ${NODE0_ADDR} \
-        --node-ports 30000 \
+        --node-ports ${ROUTER_PORT} \
         --wait-for-all-ports \
         --timeout 1800"
 
@@ -539,7 +543,7 @@ elif [ "$NODE_RANK" -gt 0 ] && [ "$NODE_RANK" -lt "$NODE_OFFSET" ]; then
     echo "Waiting until proxy server closes..."
     WAIT_CMD="python3 $SGLANG_WS_PATH/sync.py wait \
         --remote-ip ${NODE0_ADDR} \
-        --remote-port 30000"
+        --remote-port ${ROUTER_PORT}"
 
     if [[ "$DRY_RUN" -eq 1 ]]; then
         echo "DRY RUN: $WAIT_CMD"
@@ -565,7 +569,7 @@ else
         --disaggregation-mode decode \
         --disaggregation-ib-device ${IBDEVICES} \
         --host 0.0.0.0 \
-        --port 8000 \
+        --port ${SGLANG_PD_PORT} \
         --trust-remote-code \
         ${DECODE_SERVER_CONFIG} \
         --log-level-http warning"
@@ -591,7 +595,7 @@ else
     echo "Waiting for proxy server to be up..."
     BARRIER_CMD="python3 $SGLANG_WS_PATH/sync.py barrier \
         --node-ips ${NODE0_ADDR} \
-        --node-ports 30000 \
+        --node-ports ${ROUTER_PORT} \
         --wait-for-all-ports \
         --timeout 1800"
 
@@ -605,7 +609,7 @@ else
     echo "Waiting until proxy server closes..."
     WAIT_CMD="python3 $SGLANG_WS_PATH/sync.py wait \
         --remote-ip ${NODE0_ADDR} \
-        --remote-port 30000"
+        --remote-port ${ROUTER_PORT}"
 
     if [[ "$DRY_RUN" -eq 1 ]]; then
         echo "DRY RUN: $WAIT_CMD"

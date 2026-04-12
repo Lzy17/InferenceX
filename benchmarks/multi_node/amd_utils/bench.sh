@@ -20,7 +20,8 @@ IFS='x' read -r -a chosen_concurrencies <<< "$concurrency_list"
 
 echo "Config ${chosen_isl}; ${chosen_osl}; ${chosen_concurrencies[0]}; ${chosen_req_rate}"
 
-head_node="localhost"
+#head_node="localhost"
+head_node=127.0.0.1
 head_port="30000"
 
 
