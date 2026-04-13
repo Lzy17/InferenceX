@@ -37,6 +37,9 @@ BENCH_REQUEST_RATE="${BENCH_REQUEST_RATE:-inf}"
 BENCH_NUM_PROMPTS_MULTIPLIER="${BENCH_NUM_PROMPTS_MULTIPLIER:-10}"
 BENCH_MAX_CONCURRENCY="${BENCH_MAX_CONCURRENCY:-512}"
 
+# KV-cache transfer backend: "mori" or "mooncake"
+KVTRANSFER_BACKEND="${KVTRANSFER_BACKEND:-mori}"
+
 # Dry Run for debugging purpose
 DRY_RUN="${DRY_RUN:-0}"
 
@@ -52,15 +55,15 @@ source $SGLANG_WS_PATH/env.sh
 host_ip=$(ip route get 1.1.1.1 | awk '/src/ {print $7}')
 host_name=$(hostname)
 
-# MORI_RDMA_TC configuration (optional)
-# If set by runner, use it for RDMA traffic class configuration
-# If not set, RDMA operations will proceed without QoS/traffic class settings
-if [[ -n "${MORI_RDMA_TC}" ]]; then
-    echo "[INFO] Using MORI_RDMA_TC=$MORI_RDMA_TC for RDMA traffic class configuration"
-    echo "[INFO] Host '$host_name' configured with MORI_RDMA_TC=$MORI_RDMA_TC"
-else
-    echo "[INFO] MORI_RDMA_TC not set. Skipping RDMA traffic class configuration."
-    echo "[INFO] This is normal for clusters without QoS requirements."
+# MORI_RDMA_TC configuration (only relevant for mori backend)
+if [[ "$KVTRANSFER_BACKEND" == "mori" ]]; then
+    if [[ -n "${MORI_RDMA_TC}" ]]; then
+        echo "[INFO] Using MORI_RDMA_TC=$MORI_RDMA_TC for RDMA traffic class configuration"
+        echo "[INFO] Host '$host_name' configured with MORI_RDMA_TC=$MORI_RDMA_TC"
+    else
+        echo "[INFO] MORI_RDMA_TC not set. Skipping RDMA traffic class configuration."
+        echo "[INFO] This is normal for clusters without QoS requirements."
+    fi
 fi
 
 # =============================================================================
@@ -168,6 +171,14 @@ print(f'DECODE_CUDA_GRAPH_BS_NO_DP_END=\"{e}\"')
 
 echo "Loaded model configuration for: $MODEL_NAME"
 
+# Conditionally inject transfer backend flag based on KVTRANSFER_BACKEND
+if [[ "$KVTRANSFER_BACKEND" == "mori" ]]; then
+    MODEL_BASE_FLAGS="$MODEL_BASE_FLAGS --disaggregation-transfer-backend mori"
+    echo "[INFO] Using MoRI transfer backend (--disaggregation-transfer-backend mori)"
+else
+    echo "[INFO] Using Mooncake transfer backend (no --disaggregation-transfer-backend flag)"
+fi
+
 # Compute DP-dependent prefill parameters
 if [[ "$PREFILL_ENABLE_DP" == "true" ]]; then
     prefill_cuda_graph_bs=($PREFILL_CUDA_GRAPH_BS_DP)
@@ -212,7 +223,7 @@ if [[ "$DECODE_PREFILL_ROUND_ROBIN_BALANCE" == "True" ]] || [[ "$DECODE_PREFILL_
     DECODE_MODE_FLAGS="$DECODE_MODE_FLAGS --prefill-round-robin-balance"
 fi
 
-if [[ "$DECODE_MTP_SIZE" -gt 0 ]]; then
+if [[ "$KVTRANSFER_BACKEND" == "mori" ]] && [[ "$DECODE_MTP_SIZE" -gt 0 ]]; then
     MORI_MAX_DISPATCH_TOKENS_DECODE=$((MORI_MAX_DISPATCH_TOKENS_DECODE * (DECODE_MTP_SIZE + 1)))
 fi
 
@@ -366,12 +377,19 @@ if [ "$NODE_RANK" -eq 0 ]; then
     echo "Decode  parallelism: TP=${DECODE_TP_SIZE},  EP enabled: ${DECODE_ENABLE_EP},  DP enabled: ${DECODE_ENABLE_DP},  MTP size=${DECODE_MTP_SIZE}"
     echo "Prefill servers ($((PREFILL_TP_SIZE/GPUS_PER_NODE)) nodes): ${PREFILL_ARGS}"
     echo "Decode servers  ($((DECODE_TP_SIZE/GPUS_PER_NODE))  nodes): ${DECODE_ARGS}"
-    echo "Prefill env: SGLANG_MORI_NUM_MAX_DISPATCH_TOKENS_PER_RANK: ${MORI_MAX_DISPATCH_TOKENS_PREFILL}"
-    echo "Decode env: SGLANG_MORI_NUM_MAX_DISPATCH_TOKENS_PER_RANK=${MORI_MAX_DISPATCH_TOKENS_DECODE}"
+    if [[ "$KVTRANSFER_BACKEND" == "mori" ]]; then
+        echo "Prefill env: SGLANG_MORI_NUM_MAX_DISPATCH_TOKENS_PER_RANK: ${MORI_MAX_DISPATCH_TOKENS_PREFILL}"
+        echo "Decode env: SGLANG_MORI_NUM_MAX_DISPATCH_TOKENS_PER_RANK=${MORI_MAX_DISPATCH_TOKENS_DECODE}"
+    fi
+    echo "KVTRANSFER_BACKEND: ${KVTRANSFER_BACKEND}"
     echo "================================================"
 
     # start the head prefill server
-    PREFILL_CMD="SGLANG_MORI_NUM_MAX_DISPATCH_TOKENS_PER_RANK=${MORI_MAX_DISPATCH_TOKENS_PREFILL} python3 -m sglang.launch_server \
+    PREFILL_CMD_PREFIX=""
+    if [[ "$KVTRANSFER_BACKEND" == "mori" ]]; then
+        PREFILL_CMD_PREFIX="SGLANG_MORI_NUM_MAX_DISPATCH_TOKENS_PER_RANK=${MORI_MAX_DISPATCH_TOKENS_PREFILL} "
+    fi
+    PREFILL_CMD="${PREFILL_CMD_PREFIX}python3 -m sglang.launch_server \
         --model-path $MODEL_DIR/$MODEL_NAME \
         --disaggregation-mode prefill \
         --disaggregation-ib-device ${IBDEVICES} \
@@ -501,7 +519,11 @@ elif [ "$NODE_RANK" -gt 0 ] && [ "$NODE_RANK" -lt "$NODE_OFFSET" ]; then
     echo "Using prefill config: $PREFILL_SERVER_CONFIG"
     echo "Prefill parallelism: TP=${PREFILL_TP_SIZE}, EP enabled: ${PREFILL_ENABLE_EP}, DP enabled: ${PREFILL_ENABLE_DP}"
 
-    PREFILL_CMD="SGLANG_MORI_NUM_MAX_DISPATCH_TOKENS_PER_RANK=${MORI_MAX_DISPATCH_TOKENS_PREFILL} python3 -m sglang.launch_server \
+    PREFILL_CMD_PREFIX=""
+    if [[ "$KVTRANSFER_BACKEND" == "mori" ]]; then
+        PREFILL_CMD_PREFIX="SGLANG_MORI_NUM_MAX_DISPATCH_TOKENS_PER_RANK=${MORI_MAX_DISPATCH_TOKENS_PREFILL} "
+    fi
+    PREFILL_CMD="${PREFILL_CMD_PREFIX}python3 -m sglang.launch_server \
         --model-path $MODEL_DIR/${MODEL_NAME} \
         --disaggregation-mode prefill \
         --disaggregation-ib-device ${IBDEVICES} \
@@ -564,7 +586,11 @@ else
     echo "Decode node rank: $RANK"
     echo "Decode parallelism: TP=${DECODE_TP_SIZE}, EP enabled: ${DECODE_ENABLE_EP}, DP enabled: ${DECODE_ENABLE_DP}"
 
-    DECODE_CMD="SGLANG_MORI_NUM_MAX_DISPATCH_TOKENS_PER_RANK=${MORI_MAX_DISPATCH_TOKENS_DECODE} python3 -m sglang.launch_server \
+    DECODE_CMD_PREFIX=""
+    if [[ "$KVTRANSFER_BACKEND" == "mori" ]]; then
+        DECODE_CMD_PREFIX="SGLANG_MORI_NUM_MAX_DISPATCH_TOKENS_PER_RANK=${MORI_MAX_DISPATCH_TOKENS_DECODE} "
+    fi
+    DECODE_CMD="${DECODE_CMD_PREFIX}python3 -m sglang.launch_server \
         --model-path ${MODEL_DIR}/${MODEL_NAME} \
         --disaggregation-mode decode \
         --disaggregation-ib-device ${IBDEVICES} \

@@ -22,7 +22,7 @@ echo "Config ${chosen_isl}; ${chosen_osl}; ${chosen_concurrencies[0]}; ${chosen_
 
 #head_node="localhost"
 head_node=127.0.0.1
-head_port="30000"
+head_port="30027"
 
 
 profile_folder="${log_path}/sglang_isl_${chosen_isl}_osl_${chosen_osl}"

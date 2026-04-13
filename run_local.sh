@@ -19,13 +19,11 @@ export BARRIER_SYNC_PORT="30025"
 export SGLANG_PD_PORT="30026"
 export ROUTER_PORT="30027"
 
-export IMAGE="lmsysorg/sglang:v0.5.9-rocm700-mi35x"
+# KV-cache transfer backend: "mori" or "mooncake"
+export KVTRANSFER_BACKEND="mori"
 
-# 先尽量简化
-export INSTALL_MORI_IN_CONTAINER=0
-export REBUILD_LIBBNXT_IN_CONTAINER=0
+export IMAGE="lmsysorg/sglang:v0.5.10rc0-rocm700-mi35x"
 
-# 最小 smoke test
 export ISL=128
 export OSL=16
 export CONC_LIST="1"

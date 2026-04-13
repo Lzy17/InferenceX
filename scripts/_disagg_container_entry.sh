@@ -6,21 +6,25 @@ set -euo pipefail
 
 : "${SLURM_JOB_ID:?}"
 
-if [[ "${REBUILD_LIBBNXT_IN_CONTAINER:-0}" == "1" ]]; then
-  export REBUILD_BNXT=1
-  export PATH_TO_BNXT_TAR_PACKAGE="${PATH_TO_BNXT_TAR_PACKAGE:?Set PATH_TO_BNXT_TAR_PACKAGE to a path visible in-container (e.g. /workspace/driver/libbnxt_re-*.tar.gz)}"
-  bash /workspace/benchmarks/multi_node/amd_utils/rebuild_bnxt.sh
-  # Prefer freshly built libbnxt_re in /usr/local/lib over inbox/shipped providers in /usr/lib.
-  export LD_LIBRARY_PATH="/usr/local/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-fi
-
-if [[ "${INSTALL_MORI_IN_CONTAINER:-0}" == "1" ]]; then
-  bash /workspace/scripts/install_mori_in_container.sh
-  if [[ -f /tmp/mori_pythonpath_prefix ]]; then
-    _mori_pyp="$(cat /tmp/mori_pythonpath_prefix)"
-    export PYTHONPATH="${_mori_pyp}${PYTHONPATH:+:${PYTHONPATH}}"
-    unset _mori_pyp
+if [[ "${KVTRANSFER_BACKEND:-mori}" == "mori" ]]; then
+  if [[ "${REBUILD_LIBBNXT_IN_CONTAINER:-0}" == "1" ]]; then
+    export REBUILD_BNXT=1
+    export PATH_TO_BNXT_TAR_PACKAGE="${PATH_TO_BNXT_TAR_PACKAGE:?Set PATH_TO_BNXT_TAR_PACKAGE to a path visible in-container (e.g. /workspace/driver/libbnxt_re-*.tar.gz)}"
+    bash /workspace/benchmarks/multi_node/amd_utils/rebuild_bnxt.sh
+    # Prefer freshly built libbnxt_re in /usr/local/lib over inbox/shipped providers in /usr/lib.
+    export LD_LIBRARY_PATH="/usr/local/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
   fi
+
+  if [[ "${INSTALL_MORI_IN_CONTAINER:-0}" == "1" ]]; then
+    bash /workspace/scripts/install_mori_in_container.sh
+    if [[ -f /tmp/mori_pythonpath_prefix ]]; then
+      _mori_pyp="$(cat /tmp/mori_pythonpath_prefix)"
+      export PYTHONPATH="${_mori_pyp}${PYTHONPATH:+:${PYTHONPATH}}"
+      unset _mori_pyp
+    fi
+  fi
+else
+  echo "[INFO] KVTRANSFER_BACKEND=${KVTRANSFER_BACKEND} — skipping MoRI install and libbnxt rebuild"
 fi
 
 mkdir -p "/run_logs/slurm_job-${SLURM_JOB_ID}"

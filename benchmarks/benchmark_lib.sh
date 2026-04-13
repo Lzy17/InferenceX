@@ -153,7 +153,7 @@ wait_for_server_ready() {
     # Show logs until server is ready
     tail -f -n +1 "$server_log" &
     local TAIL_PID=$!
-    until curl --output /dev/null --silent --fail http://0.0.0.0:$port/health; do
+    until curl --output /dev/null --silent --fail http://127.0.0.1:$port/health; do
         if ! kill -0 "$server_pid" 2>/dev/null; then
             echo "Server died before becoming healthy. Exiting."
             kill $TAIL_PID
@@ -331,7 +331,7 @@ run_benchmark_serving() {
         python3 "$workspace_dir/utils/bench_serving/benchmark_serving.py"
         --model "$model"
         --backend "$backend"
-        --base-url "http://0.0.0.0:$port"
+        --base-url "http://127.0.0.1:$port"
         --dataset-name random
         --random-input-len "$input_len"
         --random-output-len "$output_len"
@@ -666,7 +666,7 @@ run_lm_eval() {
     _install_lm_eval_deps
     _patch_lm_eval
 
-    local openai_server_base="http://0.0.0.0:${port}"
+    local openai_server_base="http://127.0.0.1:${port}"
     local openai_chat_base="${openai_server_base}/v1/chat/completions"
     export OPENAI_API_KEY=${OPENAI_API_KEY:-EMPTY}
     MODEL_NAME=${MODEL_NAME:-$MODEL} # Prefer MODEL_NAME, else MODEL

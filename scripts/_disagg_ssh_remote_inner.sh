@@ -107,5 +107,6 @@ exec "${_dcmd[@]}" run --rm --init \
   -e "MORI_SOURCE_PATH=${MORI_SOURCE_PATH:-}" \
   -e "INSTALL_MORI_PYTHON_BIN=${INSTALL_MORI_PYTHON_BIN:-}" \
   -e "INSTALL_MORI_NO_BUILD_ISOLATION=${INSTALL_MORI_NO_BUILD_ISOLATION:-0}" \
+  -e "KVTRANSFER_BACKEND=${KVTRANSFER_BACKEND:-mori}" \
   "${IMAGE}" \
   bash /workspace/scripts/_disagg_container_entry.sh
